@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DELTA RSL - SHOP 1</title>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+    <style>
+        :root { --bg: #0d0d16; --card: #161625; --cyan: #00f2ff; --gold: #ffcc00; --red: #ff4444; --green: #00ff88; }
+        body { background: var(--bg); color: white; font-family: 'Segoe UI', sans-serif; padding: 15px; margin: 0; }
+        .box { background: var(--card); padding: 20px; border-radius: 15px; border: 1px solid #333; margin-bottom: 20px; }
+        input { width: 100%; padding: 12px; margin: 8px 0; border-radius: 8px; border: 1px solid #444; background: #000; color: #fff; box-sizing: border-box; }
+        button { border: none; padding: 12px; border-radius: 8px; font-weight: bold; cursor: pointer; width: 100%; }
+        .btn-main { background: var(--cyan); color: #000; }
+        .btn-nap { background: var(--gold); color: #000; margin-top: 10px; }
+        .balance { color: var(--gold); font-size: 24px; font-weight: bold; }
+        
+        /* Table Lịch sử */
+        .hist-table { width: 100%; font-size: 12px; border-collapse: collapse; margin-top: 10px; }
+        .hist-table td { padding: 8px; border-bottom: 1px solid #222; }
+        .status-wait { color: var(--gold); }
+        .status-success { color: var(--green); }
+        .status-fail { color: var(--red); }
+    </style>
+</head>
+<body>
+
+<div style="max-width: 450px; margin: auto;">
+    <h2 style="text-align:center; color: var(--cyan);">DELTA RSL - SHOP 1</h2>
+
+    <div id="auth-area" class="box">
+        <input type="text" id="auth-user" placeholder="Tên tài khoản..." oninput="this.value = this.value.toLowerCase()">
+        <input type="password" id="auth-pass" placeholder="Mật khẩu...">
+        <button class="btn-main" onclick="handleAuth('login')">Đăng Nhập</button>
+        <button onclick="handleAuth('register')" style="background:none; color:#888; margin-top:10px; font-size:12px">Chưa có tài khoản? Đăng ký</button>
+    </div>
+
+    <div id="user-area" class="box" style="display:none;">
+        <span>Chào, <b id="display-name" style="color:var(--cyan)"></b></span>
+        <div style="margin: 15px 0;">Ví tiền: <span class="balance" id="user-balance">0</span> VNĐ</div>
+        
+        <div style="background: #000; padding: 10px; border-radius: 8px; border: 1px solid #333; text-align:center">
+            <small style="color:#888">Nội dung chuyển khoản:</small><br>
+            <b id="memo-display" style="color: var(--gold); font-size: 18px;">NAP ...</b>
+        </div>
+
+        <input type="number" id="nap-amount" placeholder="Nhập số tiền đã bank...">
+        <button class="btn-nap" onclick="sendRequest()">XÁC NHẬN ĐÃ CHUYỂN</button>
+    </div>
+
+    <div class="box"><h3 style="color:var(--green)">GÓI NGÀY (20k)</h3><div id="list-ngay"></div></div>
+    <div class="box"><h3 style="color:var(--cyan)">GÓI TUẦN (40k)</h3><div id="list-tuan"></div></div>
+    <div class="box"><h3 style="color:#ff007b)">GÓI THÁNG (80k)</h3><div id="list-thang"></div></div>
+
+    <div class="box">
+        <h3 style="color:var(--gold)">LỊCH SỬ NẠP TIỀN</h3>
+        <table class="hist-table"><tbody id="hist-pay"></tbody></table>
+    </div>
+
+    <div class="box">
+        <h3 style="color:var(--cyan)">KHO KEY ĐÃ MUA</h3>
+        <table class="hist-table"><tbody id="hist-key"></tbody></table>
+    </div>
+</div>
+
+<script>
+    const firebaseConfig = {
+        apiKey: "AIzaSyBk6R1TDZeAxh37JQLgL_6Wl0v8m8Sg0",
+        authDomain: "shopctv-61f96.firebaseapp.com",
+        databaseURL: "https://shopctv-61f96-default-rtdb.asia-southeast1.firebasedatabase.app/", 
+        projectId: "shopctv-61f96",
+        appId: "1:610663182342:web:83e255ec7921609395f190"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+    let currentUser = null;
+
+    function handleAuth(type) {
+        const user = document.getElementById('auth-user').value.trim().toLowerCase();
+        const pass = document.getElementById('auth-pass').value.trim();
+        if(!user || !pass) return alert("Thiếu thông tin!");
+        
+        db.ref('users_shop1/' + user).once('value', (s) => {
+            const data = s.val();
+            if(type === 'register') {
+                if(data) return alert("Tên này đã có người dùng!");
+                db.ref('users_shop1/' + user).set({ password: pass, balance: 0 }).then(() => alert("Đã tạo nick!"));
+            } else {
+                if(data && data.password == pass) { enterShop(user); } 
+                else { alert("Sai pass!"); }
+            }
+        });
+    }
+
+    function enterShop(user) {
+        currentUser = user;
+        document.getElementById('auth-area').style.display = 'none';
+        document.getElementById('user-area').style.display = 'block';
+        document.getElementById('display-name').innerText = user;
+        document.getElementById('memo-display').innerText = "NAP " + user;
+
+        // Load số dư & Lịch sử nạp
+        db.ref('users_shop1/' + user).on('value', s => {
+            const d = s.val();
+            document.getElementById('user-balance').innerText = (d.balance || 0).toLocaleString();
+        });
+
+        // Load Lịch sử nạp tiền
+        db.ref('history_pay/' + user).on('value', s => {
+            const area = document.getElementById('hist-pay'); area.innerHTML = "";
+            const data = s.val();
+            for(let id in data) {
+                const item = data[id];
+                const st = item.status === 'Success' ? '<b class="status-success">Thành công</b>' : (item.status === 'Fail' ? '<b class="status-fail">Thất bại</b>' : '<b class="status-wait">Đang đợi</b>');
+                area.innerHTML = `<tr><td>${item.time}</td><td>+${Number(item.amount).toLocaleString()}</td><td>${st}</td></tr>` + area.innerHTML;
+            }
+        });
+
+        // Load Lịch sử mua key
+        db.ref('history_keys/' + user).on('value', s => {
+            const area = document.getElementById('hist-key'); area.innerHTML = "";
+            const data = s.val();
+            for(let id in data) {
+                area.innerHTML = `<tr><td>${data[id].time}</td><td>${data[id].key}</td></tr>` + area.innerHTML;
+            }
+        });
+    }
+
+    function sendRequest() {
+        const amt = document.getElementById('nap-amount').value;
+        if(!amt || amt < 1000) return alert("Tối thiểu 1.000đ");
+        const time = new Date().toLocaleTimeString();
+
+        // Gửi lên bank_requests cho Admin duyệt
+        const newRef = db.ref('bank_requests').push();
+        const reqId = newRef.key;
+        
+        newRef.set({
+            user: currentUser, amount: amt, shop: 'users_shop1', time: time, id: reqId
+        });
+
+        // Tạo dòng lịch sử "Đang đợi" cho khách
+        db.ref('history_pay/' + currentUser + '/' + reqId).set({
+            time: time, amount: amt, status: 'Pending'
+        });
+
+        alert("Đã gửi đơn!"); document.getElementById('nap-amount').value = "";
+    }
+
+    function loadKeys(path, elId, price) {
+        db.ref('keys/' + path).on('value', s => {
+            const div = document.getElementById(elId); div.innerHTML = "";
+            const data = s.val();
+            if(!data) { div.innerHTML = "Hết hàng"; return; }
+            for(let id in data) {
+                div.innerHTML += `<div style="display:flex;justify-content:space-between;padding:10px;border-bottom:1px solid #222"><span>Key ẩn ***</span><button onclick="buy('${path}/${id}',${price})" style="width:60px;padding:5px;background:var(--cyan);border-radius:5px">MUA</button></div>`;
+            }
+        });
+    }
+
+    function buy(path, price) {
+        if(!currentUser) return alert("Hãy đăng nhập!");
+        db.ref('users_shop1/'+currentUser+'/balance').once('value', s => {
+            const bal = s.val() || 0;
+            if(bal < price) return alert("Hết tiền!");
+            db.ref('keys/'+path).once('value', kSnap => {
+                const keyVal = kSnap.val();
+                db.ref('users_shop1/'+currentUser+'/balance').set(bal - price);
+                db.ref('keys/'+path).remove();
+                // Lưu vào lịch sử mua key
+                db.ref('history_keys/'+currentUser).push({ key: keyVal, time: new Date().toLocaleTimeString() });
+                alert("Xong! Key của bạn: " + keyVal);
+            });
+        });
+    }
+
+    loadKeys('shop1/ngay','list-ngay', 20000);
+    loadKeys('shop1/tuan','list-tuan', 40000);
+    loadKeys('shop1/thang','list-thang', 80000);
+</script>
+</body>
+</html>
